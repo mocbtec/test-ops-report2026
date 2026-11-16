@@ -1,169 +1,266 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-    <meta charset="UTF-8">
-    <title>Insight Dashboard - สำนักงานปลัดกระทรวงพาณิชย์ ปี 2570</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Sarabun', sans-serif; }
-    </style>
-</head>
-<body class="bg-slate-50 text-slate-800 min-h-screen pb-12">
-    <!-- Header -->
-    <header class="bg-indigo-900 text-white shadow-md py-6 px-8 mb-8">
-        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center">
-            <div>
-                <h1 class="text-2xl font-bold">สำนักงานปลัดกระทรวงพาณิชย์</h1>
-                <p class="text-indigo-200 text-sm">Insight Dashboard รายงานผลการดำเนินงาน ประจำปีงบประมาณ พ.ศ. 2570</p>
-            </div>
-            <div class="mt-4 md:mt-0 bg-indigo-800 px-4 py-2 rounded-lg text-sm border border-indigo-700">
-                สถานะข้อมูล: <span id="sync-status" class="text-emerald-400 font-medium">กำลังโหลด...</span>
-            </div>
-        </div>
-    </header>
+/**
+ * Executive Insight Dashboard - ผลการดำเนินงาน สป.พณ. ปีงบประมาณ พ.ศ. 2570
+ * ไฟล์: Code.gs (คู่กับ Index.html)
+ * โครงชีตที่ตรวจแล้ว: A=ลำดับโครงการ B=ชื่อ C=งบ D=หน่วยนับ E=ทั้งปี F..Q=ต.ค.-ก.ย. R=หน่วยงาน S=หมายเหตุ
+ */
+const CONFIG = {
+  SPREADSHEET_ID: '1riYGwLWFl3s1sEA8_A6SMiP0__Vsvrnu', // ต้องเป็น Google Sheets (แปลงจาก .xlsx แล้ว)
+  SHEET_GID: 236898949,
+  SHEET_NAME: 'ผล สป.70_รายเดือน',
+  BUDGET_COL: 0,            // 1-based; 0 = หาอัตโนมัติ
+  EXPECTED_PROJECTS: 17,
+  CACHE_SEC: 300
+};
+const MONTHS = ['ต.ค.','พ.ย.','ธ.ค.','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.'];
+const CACHE_KEY = 'dash_v2';
+const BARE_UNIT = /^(เรื่อง|ครั้ง|ราย|VM|ระบบ|ด้าน|ล้านบาท|ร้อยละ|คะแนน)$/;
 
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-        <!-- Loading Spinner -->
-        <div id="loading" class="flex justify-center items-center py-20">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-900"></div>
-            <span class="ml-3 text-lg font-medium text-slate-600">กำลังประมวลผลข้อมูล...</span>
-        </div>
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('Dashboard ผลการดำเนินงาน สป.พณ. ปีงบ 2570')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
 
-        <div id="dashboard-content" class="hidden space-y-8">
-            <!-- KPI Summary Cards -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <!-- Budget Card -->
-                <div class="bg-white rounded-xl shadow-sm p-6 border-l-4 border-indigo-600">
-                    <p class="text-sm font-medium text-slate-500">งบประมาณที่ได้รับจัดสรรรวม</p>
-                    <div class="flex items-baseline mt-2">
-                        <span id="card-budget" class="text-3xl font-bold text-slate-900">0.00</span>
-                        <span class="ml-2 text-sm text-slate-500">ล้านบาท</span>
-                    </div>
-                </div>
-                <!-- Trade Value Card (Projects 1-9) -->
-                <div class="bg-white rounded-xl shadow-sm p-6 border-l-4 border-blue-500">
-                    <p class="text-sm font-medium text-slate-500">มูลค่าการค้าสินค้าภาพรวม (ชม. 1-9)</p>
-                    <div class="mt-2 flex justify-between items-baseline">
-                        <div>
-                            <span class="text-xs text-slate-400">แผน: </span>
-                            <span id="trade-plan" class="text-lg font-semibold text-slate-700">0</span>
-                        </div>
-                        <div>
-                            <span class="text-xs text-slate-400">ผล: </span>
-                            <span id="trade-actual" class="text-lg font-bold text-blue-600">0</span>
-                        </div>
-                    </div>
-                </div>
-                <!-- Entrepreneurs Card (Projects 1-9) -->
-                <div class="bg-white rounded-xl shadow-sm p-6 border-l-4 border-emerald-500">
-                    <p class="text-sm font-medium text-slate-500">ผู้ประกอบการได้รับการพัฒนา (ชม. 1-9)</p>
-                    <div class="mt-2 flex justify-between items-baseline">
-                        <div>
-                            <span class="text-xs text-slate-400">แผน: </span>
-                            <span id="ent-plan" class="text-lg font-semibold text-slate-700">0</span>
-                        </div>
-                        <div>
-                            <span class="text-xs text-slate-400">ผล: </span>
-                            <span id="ent-actual" class="text-lg font-bold text-emerald-600">0</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+function getDashboardData(force) {
+  const cache = CacheService.getScriptCache();
+  if (!force) {
+    const hit = cache.get(CACHE_KEY);
+    if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  }
+  const data = buildDashboard_();
+  try {
+    const s = JSON.stringify(data);
+    if (Utilities.newBlob(s).getBytes().length < 95000) cache.put(CACHE_KEY, s, CONFIG.CACHE_SEC);
+  } catch (e) {}
+  return data;
+}
 
-            <!-- Project Deep Dive Section (17 Projects Dropdown) -->
-            <div class="bg-white rounded-xl shadow-sm p-6">
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 pb-4 border-b border-slate-100 gap-4">
-                    <div>
-                        <h2 class="text-lg font-bold text-slate-900">รายละเอียดรายโครงการ (17 โครงการ)</h2>
-                        <p class="text-sm text-slate-500">เลือกโครงการเพื่อดูผลการดำเนินงานเปรียบเทียบแผนและผล (รายเดือน, ไตรมาส, ปี)</p>
-                    </div>
-                    <div class="w-full sm:w-96">
-                        <select id="project-select" class="w-full bg-slate-50 border border-slate-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                            <option value="">-- กรุณาเลือกโครงการ --</option>
-                        </select>
-                    </div>
-                </div>
+function testSetup() {
+  const d = buildDashboard_();
+  Logger.log('แท็บ: %s | โครงการ: %s | แผนงาน: %s | เดือนล่าสุดที่มีผล: %s',
+    d.sheet, d.projects.length, d.programs.length, d.lastMonth);
+  Logger.log(d.warnings.length ? d.warnings.join('\n') : 'ไม่พบคำเตือน');
+}
 
-                <!-- Project Detail Container -->
-                <div id="project-detail-container" class="space-y-6 hidden">
-                    <div class="bg-indigo-50 p-4 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
-                        <div>
-                            <span id="proj-id-badge" class="bg-indigo-600 text-white text-xs px-2.5 py-1 rounded-full font-semibold">โครงการที่ -</span>
-                            <h3 id="proj-name" class="text-base font-bold text-indigo-950 mt-1">ชื่อโครงการ</h3>
-                        </div>
-                        <div class="text-sm bg-white px-3 py-1.5 rounded border border-indigo-200 font-medium text-indigo-900">
-                            งบประมาณ: <span id="proj-budget">0</span> ล้านบาท
-                        </div>
-                    </div>
+/* ---------- อ่านชีต / ตรวจโครงสร้าง ---------- */
+function readSheet_() {
+  let ss;
+  try { ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID); }
+  catch (e) {
+    throw new Error('เปิดไฟล์ไม่ได้: ไฟล์ต้องเป็น Google Sheets (ถ้าเป็น .xlsx ให้ File > Save as Google Sheets แล้วใส่ ID ใหม่) และบัญชีที่รันต้องมีสิทธิ์เข้าถึง — ' + e.message);
+  }
+  const cands = [ss.getSheets().filter(function (s) { return s.getSheetId() === CONFIG.SHEET_GID; })[0],
+                 ss.getSheetByName(CONFIG.SHEET_NAME)].filter(Boolean);
+  for (let i = 0; i < cands.length; i++) {
+    const vals = cands[i].getDataRange().getValues();
+    try { return { vals: vals, layout: detectLayout_(vals), name: cands[i].getName() }; } catch (e) {}
+  }
+  throw new Error('ไม่พบแท็บที่มีหัวตาราง "ทั้งปี" + ต.ค.–ก.ย. (ตรวจ SHEET_GID / SHEET_NAME)');
+}
 
-                    <!-- Indicators Table -->
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-slate-200 text-sm">
-                            <thead class="bg-slate-100 text-slate-700 font-semibold text-xs uppercase tracking-wider">
-                                <tr>
-                                    <th class="px-3 py-3 text-left">ตัวชี้วัด / รายละเอียด</th>
-                                    <th class="px-3 py-3 text-center">ประเภท</th>
-                                    <th class="px-3 py-3 text-center">ต.ค.</th>
-                                    <th class="px-3 py-3 text-center">พ.ย.</th>
-                                    <th class="px-3 py-3 text-center">ธ.ค.</th>
-                                    <th class="px-3 py-3 text-center bg-indigo-50">Q1</th>
-                                    <th class="px-3 py-3 text-center">ม.ค.</th>
-                                    <th class="px-3 py-3 text-center">ก.พ.</th>
-                                    <th class="px-3 py-3 text-center">มี.ค.</th>
-                                    <th class="px-3 py-3 text-center bg-indigo-50">Q2</th>
-                                    <th class="px-3 py-3 text-center">เม.ย.</th>
-                                    <th class="px-3 py-3 text-center">พ.ค.</th>
-                                    <th class="px-3 py-3 text-center">มิ.ย.</th>
-                                    <th class="px-3 py-3 text-center bg-indigo-50">Q3</th>
-                                    <th class="px-3 py-3 text-center">ก.ค.</th>
-                                    <th class="px-3 py-3 text-center">ส.ค.</th>
-                                    <th class="px-3 py-3 text-center">ก.ย.</th>
-                                    <th class="px-3 py-3 text-center bg-indigo-50">Q4</th>
-                                    <th class="px-3 py-3 text-center bg-indigo-100 text-indigo-900 font-bold">รวมทั้งปี</th>
-                                </tr>
-                            </thead>
-                            <tbody id="indicators-table-body" class="divide-y divide-slate-200 bg-white">
-                                <!-- Dynamic rows -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+function norm_(v) { return String(v == null ? '' : v).replace(/\s+/g, ''); }
 
-                <div id="no-project-selected" class="text-center py-12 text-slate-400">
-                    โปรดเลือกโครงการจากรายการด้านบนเพื่อดูข้อมูลรายละเอียด
-                </div>
-            </div>
-        </div>
-    </main>
+function detectLayout_(vals) {
+  const lim = Math.min(vals.length, 15);
+  for (let r = 0; r < lim; r++) {
+    const row = vals[r].map(norm_), c0 = row.indexOf(MONTHS[0]);
+    if (c0 < 1 || !MONTHS.every(function (m, i) { return row[c0 + i] === m; })) continue;
+    if (row[c0 - 1].indexOf('ทั้งปี') < 0) continue;
+    let b = CONFIG.BUDGET_COL ? CONFIG.BUDGET_COL - 1 : -1;
+    for (let rr = 0; rr <= r && b < 0; rr++)
+      b = vals[rr].map(norm_).findIndex(function (s) { return s.indexOf('งบประมาณ') === 0; });
+    if (b < 0 || b >= c0 - 2) continue;
+    return { headerRow: r, m0: c0, total: c0 - 1, unit: c0 - 2, budget: b, owner: c0 + 12 };
+  }
+  throw new Error('detectLayout_: ไม่พบหัวตาราง');
+}
 
-    <script>
-        let dashboardData = null;
+/* ---------- แปลงค่า ---------- */
+function toNum_(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  if (typeof v === 'string') {
+    const s = v.replace(/[,\s]/g, '');
+    if (!s || /^[-–—]+$/.test(s)) return null;
+    const n = Number(s);
+    return isFinite(n) ? n : null;
+  }
+  return null;
+}
+function sumN_(a) {
+  let s = 0, any = false;
+  a.forEach(function (v) { if (v !== null) { s += v; any = true; } });
+  return any ? Math.round(s * 1e6) / 1e6 : null;
+}
+function lastN_(a) {
+  for (let i = a.length - 1; i >= 0; i--) if (a[i] !== null) return a[i];
+  return null;
+}
+function near_(a, b) { return Math.abs(a - b) <= Math.max(0.01, Math.abs(b) * 0.005); }
 
-        window.addEventListener('DOMContentLoaded', () => {
-            google.script.run
-                .withSuccessHandler(onDataLoaded)
-                .withFailureHandler(onDataError)
-                .getDashboardData();
-        });
+/** sum = ยอดรายเดือนบวกกันได้ | level = ค่าระดับ/สะสม (ร้อยละ, คะแนน, หรือยอดรวม = ค่าเดือนสุดท้าย) */
+function modeOf_(unit, row, L) {
+  if (/ร้อยละ|คะแนน/.test(unit)) return 'level';
+  const m = MONTHS.map(function (_, i) { return toNum_(row[L.m0 + i]); });
+  const t = toNum_(row[L.total]), s = sumN_(m), l = lastN_(m);
+  if (t === null || s === null || near_(s, t)) return 'sum';
+  return (l !== null && near_(l, t)) ? 'level' : 'sum';
+}
 
-        function onDataLoaded(data) {
-            dashboardData = data;
-            document.getElementById('loading').classList.add('hidden');
-            document.getElementById('dashboard-content').classList.remove('hidden');
-            document.getElementById('sync-status').innerText = 'ข้อมูลเป็นปัจจุบันแล้ว';
+/** conv=true: ค่าผลหน่วย "ล้านบาท" ที่กรอกเป็นบาท (>=100,000) จะหาร 1,000,000 */
+function series_(row, L, mode, conv) {
+  let changed = false;
+  const fix = function (v) {
+    if (v === null) return null;
+    if (conv && Math.abs(v) >= 100000) { changed = true; return Math.round(v / 1e4) / 100; }
+    return v;
+  };
+  const m = MONTHS.map(function (_, i) { return fix(toNum_(row[L.m0 + i])); });
+  const t = fix(toNum_(row[L.total]));
+  const sum = mode === 'sum';
+  const q = [0, 1, 2, 3].map(function (k) {
+    const p = m.slice(k * 3, k * 3 + 3);
+    return sum ? sumN_(p) : lastN_(p);
+  });
+  const s = sum ? sumN_(m) : null;
+  const y = t !== null ? t : (sum ? s : lastN_(m));
+  return { m: m, q: q, y: y, conv: changed,
+           chk: (sum && t !== null && s !== null && !near_(s, t)) ? s : null };
+}
 
-            // Update Summary Cards
-            document.getElementById('card-budget').innerText = data.totalBudget.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-            document.getElementById('trade-plan').innerText = data.tradeSummary.plan.toLocaleString();
-            document.getElementById('trade-actual').innerText = data.tradeSummary.actual.toLocaleString();
-            document.getElementById('ent-plan').innerText = data.entrepreneurSummary.plan.toLocaleString();
-            document.getElementById('ent-actual').innerText = data.entrepreneurSummary.actual.toLocaleString();
+function findUnit_(parts, L) {
+  const re = /^(?:(.*?)\s+)?(แผน|ผล)\s*\(([^)]+)\)\s*$/;
+  for (let i = 0; i < parts.length; i++) {
+    const x = re.exec(parts[i].s);
+    if (x) return { c: parts[i].c, ps: x[2], unit: x[3].replace(/\s+/g, '') };
+  }
+  for (let j = 0; j < parts.length; j++)
+    if (parts[j].c === L.unit && BARE_UNIT.test(parts[j].s)) return { c: L.unit, ps: 'แผน', unit: parts[j].s };
+  return null;
+}
 
-            // Populate Dropdown
-            const select = document.getElementById('project-select');
-            data.projects.forEach(proj => {
-                const opt = document.createElement('option');
-                opt.value = proj.id;
-                opt.textContent = `โครงการที่ ${proj.id}: ${proj.name.substring(0, 70)}...`;
+function classify_(unit, name) {
+  if (unit === 'ล้านบาท' && name.indexOf('มูลค่า') >= 0) return 'trade';
+  if (unit === 'ราย' && name.indexOf('ผู้ประกอบการ') >= 0) return 'entre';
+  return 'other';
+}
+
+/* ---------- ตัวสร้างข้อมูลหลัก ---------- */
+function buildDashboard_() {
+  const src = readSheet_(), vals = src.vals, L = src.layout;
+  const warn = [], programs = [], projects = [];
+  let prog = null, cur = null, lastPlan = null, act = '', curItem = null;
+
+  for (let r = L.headerRow + 1; r < vals.length; r++) {
+    const row = vals[r], parts = [];
+    for (let c = 0; c < L.total; c++) {
+      const s = String(row[c] == null ? '' : row[c]).replace(/\s+/g, ' ').trim();
+      if (s) parts.push({ c: c, s: s, isStr: typeof row[c] === 'string' });
+    }
+    if (!parts.length) continue;
+    const first = parts[0].s, first2 = parts.slice(0, 2).map(function (p) { return p.s; }).join(' ');
+    const bud = toNum_(row[L.budget]);
+    let m;
+
+    if (/^แผนงาน/.test(first)) {
+      prog = { name: first, budget: bud, items: [] };
+      programs.push(prog); cur = null; lastPlan = null; curItem = null;
+    } else if (/^เป้าหมายหน่วยงาน/.test(first)) {
+      cur = null; lastPlan = null;
+    } else if (/^ผลผลิตที่/.test(first)) {
+      cur = null; lastPlan = null;
+      if (prog) prog.items.push({ name: first, budget: bud, kind: 'ผลผลิต' });
+    } else if ((m = /^(\d{1,2})\s+(โครงการ.*)$/.exec(first2))) {
+      const no = Number(m[1]);
+      if (projects.some(function (p) { return p.no === no; })) warn.push('แถว ' + (r + 1) + ': เลขโครงการ ' + no + ' ซ้ำ');
+      cur = { no: no, name: m[2].trim(), budget: bud, program: prog ? prog.name : '',
+              owner: String(row[L.owner] || '').trim(), indicators: [] };
+      projects.push(cur); lastPlan = null; act = '';
+      curItem = { name: 'โครงการที่ ' + no + ' ' + cur.name, budget: bud, kind: 'โครงการ' };
+      if (prog) prog.items.push(curItem);
+    } else if (/^กิจกรรม/.test(first) && cur) {
+      act = first;
+      if (cur.budget === null && bud !== null) {         // บางโครงการระบุงบที่ระดับกิจกรรม
+        cur.budget = bud; if (curItem) curItem.budget = bud;
+      }
+    } else if (cur) {
+      const u = findUnit_(parts, L);
+      const isRes = parts.some(function (p) { return p.s === 'ผล'; }) || (u && u.ps === 'ผล');
+      if (isRes) {
+        if (lastPlan && !lastPlan.result) {
+          if (u && u.unit !== lastPlan.unit) warn.push('โครงการที่ ' + cur.no + ' แถว ' + (r + 1) + ': หน่วยของผล (' + u.unit + ') ต่างจากแผน (' + lastPlan.unit + ')');
+          lastPlan.result = series_(row, L, lastPlan.mode, lastPlan.unit === 'ล้านบาท');
+          lastPlan.resRow = r + 1;
+          if (lastPlan.result.conv) warn.push('ℹ โครงการที่ ' + cur.no + ' แถว ' + (r + 1) + ': ค่าผลกรอกเป็นหน่วยบาท ระบบแปลงเป็นล้านบาทให้อัตโนมัติ (÷1,000,000) กรุณายืนยันกับเจ้าของข้อมูล');
+        } else warn.push('โครงการที่ ' + cur.no + ' แถว ' + (r + 1) + ': แถว "ผล" ไม่มีแถว "แผน" คู่กัน');
+      } else if (u && u.ps === 'แผน') {
+        const nm = (parts.filter(function (p) { return p.isStr && p.c < L.unit; })[0] || { s: '(ไม่ระบุตัวชี้วัด)' }).s;
+        const mode = modeOf_(u.unit, row, L);
+        lastPlan = {
+          name: nm.replace(/^ตัวชี้วัด[^:：]*[:：]\s*/, ''),
+          type: /เชิงปริมาณ/.test(nm) ? 'ปริมาณ' : /คุณภาพ/.test(nm) ? 'คุณภาพ' : '',
+          unit: u.unit, mode: mode, kind: classify_(u.unit, nm), act: act,
+          owner: String(row[L.owner] || '').trim(),
+          qReport: /รายงานสิ้นไตรมาส/.test(String(row[L.owner + 1] || '')),
+          row: r + 1, plan: series_(row, L, mode, false), result: null
+        };
+        cur.indicators.push(lastPlan);
+      }
+    }
+  }
+
+  /* ---------- ตรวจความถูกต้อง ---------- */
+  if (projects.length !== CONFIG.EXPECTED_PROJECTS)
+    warn.push('พบ ' + projects.length + ' โครงการ (คาดว่า ' + CONFIG.EXPECTED_PROJECTS + ')');
+  programs.forEach(function (g) {
+    const s = sumN_(g.items.map(function (i) { return i.budget; }));
+    if (g.budget !== null && s !== null && Math.abs(g.budget - s) > 0.0005)
+      warn.push('งบ "' + g.name.slice(0, 45) + '" = ' + g.budget + ' ไม่เท่าผลรวมรายการย่อย ' + s.toFixed(4));
+  });
+  projects.forEach(function (p) {
+    if (p.budget === null) warn.push('โครงการที่ ' + p.no + ': ไม่พบงบประมาณ');
+    p.indicators.forEach(function (i) {
+      if (i.plan.chk !== null) warn.push('โครงการที่ ' + p.no + ' แถว ' + i.row + ': แผนรวมรายเดือน (' + i.plan.chk + ') ไม่ตรงคอลัมน์ทั้งปี (' + i.plan.y + ')');
+      if (i.result && i.result.chk !== null) warn.push('โครงการที่ ' + p.no + ' แถว ' + i.resRow + ': ผลรวมรายเดือน (' + i.result.chk + ') ไม่ตรงคอลัมน์ทั้งปี (' + i.result.y + ')');
+      if (i.result && i.unit === 'ล้านบาท' && i.plan.y > 0 && i.result.y > i.plan.y * 100)
+        warn.push('โครงการที่ ' + p.no + ' แถว ' + i.resRow + ': ผล ' + i.result.y + ' สูงผิดปกติเมื่อเทียบแผน ' + i.plan.y);
+    });
+  });
+
+  /* ---------- สรุปโครงการที่ 1-9 (ตัวชี้วัดแรกของแต่ละประเภท/โครงการ ป้องกันนับซ้ำ) ---------- */
+  const p19 = projects.filter(function (p) { return p.no >= 1 && p.no <= 9; });
+  const pick = function (p, k) { return p.indicators.filter(function (i) { return i.kind === k; })[0]; };
+  let lastMonth = -1;
+  p19.forEach(function (p) {
+    ['trade', 'entre'].forEach(function (k) {
+      const i = pick(p, k);
+      if (i && i.result) i.result.m.forEach(function (v, ix) { if (v !== null && ix > lastMonth) lastMonth = ix; });
+    });
+  });
+  const agg = function (i) {
+    return !i ? null : { plan: i.plan.y, result: i.result ? i.result.y : null, owner: i.owner,
+      planToDate: lastMonth >= 0 ? sumN_(i.plan.m.slice(0, lastMonth + 1)) : null };
+  };
+  const rows = p19.map(function (p) {
+    const t = agg(pick(p, 'trade')), e = agg(pick(p, 'entre'));
+    if (!t) warn.push('โครงการที่ ' + p.no + ': ไม่พบตัวชี้วัดมูลค่าการค้า');
+    if (!e) warn.push('โครงการที่ ' + p.no + ': ไม่พบตัวชี้วัดผู้ประกอบการ');
+    return { no: p.no, name: p.name, budget: p.budget, trade: t, entre: e };
+  });
+  const tot = function (k, f) { return sumN_(rows.map(function (x) { return x[k] ? x[k][f] : null; })); };
+  const totals = {};
+  ['trade', 'entre'].forEach(function (k) {
+    totals[k] = { plan: tot(k, 'plan'), result: tot(k, 'result'), planToDate: tot(k, 'planToDate') };
+  });
+
+  return {
+    updated: new Date().toISOString(), sheet: src.name, months: MONTHS, lastMonth: lastMonth,
+    budget: {
+      total: sumN_(programs.map(function (g) { return g.budget; })),
+      p19: sumN_(p19.map(function (p) { return p.budget; }))
+    },
+    programs: programs,
+    summary: { rows: rows, totals: totals },
+    projects: projects,
+    warnings: warn
+  };
+}

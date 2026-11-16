@@ -1,266 +1,190 @@
-/**
- * Executive Insight Dashboard - ผลการดำเนินงาน สป.พณ. ปีงบประมาณ พ.ศ. 2570
- * ไฟล์: Code.gs (คู่กับ Index.html)
- * โครงชีตที่ตรวจแล้ว: A=ลำดับโครงการ B=ชื่อ C=งบ D=หน่วยนับ E=ทั้งปี F..Q=ต.ค.-ก.ย. R=หน่วยงาน S=หมายเหตุ
- */
-const CONFIG = {
-  SPREADSHEET_ID: '1riYGwLWFl3s1sEA8_A6SMiP0__Vsvrnu', // ต้องเป็น Google Sheets (แปลงจาก .xlsx แล้ว)
-  SHEET_GID: 236898949,
-  SHEET_NAME: 'ผล สป.70_รายเดือน',
-  BUDGET_COL: 0,            // 1-based; 0 = หาอัตโนมัติ
-  EXPECTED_PROJECTS: 17,
-  CACHE_SEC: 300
-};
-const MONTHS = ['ต.ค.','พ.ย.','ธ.ค.','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.'];
-const CACHE_KEY = 'dash_v2';
-const BARE_UNIT = /^(เรื่อง|ครั้ง|ราย|VM|ระบบ|ด้าน|ล้านบาท|ร้อยละ|คะแนน)$/;
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Executive Insight Dashboard | สำนักงานปลัดกระทรวงพาณิชย์ (ปีงบประมาณ พ.ศ. 2570)</title>
+    
+    <!-- Google Fonts: Prompt & Sarabun for clean Thai Executive Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
 
-function doGet() {
-  return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('Dashboard ผลการดำเนินงาน สป.พณ. ปีงบ 2570')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
-}
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Prompt', 'Sarabun', 'sans-serif'],
+                        sarabun: ['Sarabun', 'sans-serif'],
+                    },
+                    colors: {
+                        moc: {
+                            navy: '#0B1F3A',
+                            royal: '#153462',
+                            slate: '#264E86',
+                            gold: '#C59B27',
+                            goldLight: '#F3E5AB',
+                            goldBg: '#FDFBF3',
+                            surface: '#F8FAFC'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
 
-function getDashboardData(force) {
-  const cache = CacheService.getScriptCache();
-  if (!force) {
-    const hit = cache.get(CACHE_KEY);
-    if (hit) { try { return JSON.parse(hit); } catch (e) {} }
-  }
-  const data = buildDashboard_();
-  try {
-    const s = JSON.stringify(data);
-    if (Utilities.newBlob(s).getBytes().length < 95000) cache.put(CACHE_KEY, s, CONFIG.CACHE_SEC);
-  } catch (e) {}
-  return data;
-}
+    <style>
+        body {
+            font-family: 'Prompt', 'Sarabun', sans-serif;
+            background-color: #F4F7FB;
+            color: #1E293B;
+        }
+        .font-num {
+            font-variant-numeric: tabular-nums;
+        }
+        /* Custom scrollbar for clean executive tables */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #F1F5F9;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #CBD5E1;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94A3B8;
+        }
+        .card-shadow {
+            box-shadow: 0 4px 20px -2px rgba(11, 31, 58, 0.06), 0 1px 3px 0 rgba(11, 31, 58, 0.04);
+        }
+        .gold-gradient {
+            background: linear-gradient(135deg, #0B1F3A 0%, #153462 70%, #1E4682 100%);
+        }
+    </style>
+</head>
+<body class="antialiased selection:bg-amber-200 selection:text-slate-900">
 
-function testSetup() {
-  const d = buildDashboard_();
-  Logger.log('แท็บ: %s | โครงการ: %s | แผนงาน: %s | เดือนล่าสุดที่มีผล: %s',
-    d.sheet, d.projects.length, d.programs.length, d.lastMonth);
-  Logger.log(d.warnings.length ? d.warnings.join('\n') : 'ไม่พบคำเตือน');
-}
+    <!-- Top Executive Navigation / Header -->
+    <header class="gold-gradient text-white sticky top-0 z-40 shadow-lg border-b border-amber-500/30">
+        <div class="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <!-- Title & Ministry Emblem -->
+                <div class="flex items-start sm:items-center gap-3.5">
+                    <div class="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-center shrink-0 shadow-inner">
+                        <i data-lucide="landmark" class="w-6 h-6 text-amber-400"></i>
+                    </div>
+                    <div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="px-2.5 py-0.5 text-[11px] font-semibold tracking-wider uppercase rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                                สำนักงานปลัดกระทรวงพาณิชย์ (สป.พณ.)
+                            </span>
+                            <span id="lastUpdatedBadge" class="text-xs text-slate-300 flex items-center gap-1">
+                                <i data-lucide="clock" class="w-3.5 h-3.5 text-amber-400"></i>
+                                <span>ข้อมูลจากชีท: ผล สป.70_รายเดือน</span>
+                            </span>
+                        </div>
+                        <h1 class="text-lg sm:text-xl lg:text-2xl font-bold tracking-tight text-white mt-0.5">
+                            Executive Insight Dashboard: รายงานผลการดำเนินงานประจำปีงบประมาณ พ.ศ. 2570
+                        </h1>
+                    </div>
+                </div>
 
-/* ---------- อ่านชีต / ตรวจโครงสร้าง ---------- */
-function readSheet_() {
-  let ss;
-  try { ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID); }
-  catch (e) {
-    throw new Error('เปิดไฟล์ไม่ได้: ไฟล์ต้องเป็น Google Sheets (ถ้าเป็น .xlsx ให้ File > Save as Google Sheets แล้วใส่ ID ใหม่) และบัญชีที่รันต้องมีสิทธิ์เข้าถึง — ' + e.message);
-  }
-  const cands = [ss.getSheets().filter(function (s) { return s.getSheetId() === CONFIG.SHEET_GID; })[0],
-                 ss.getSheetByName(CONFIG.SHEET_NAME)].filter(Boolean);
-  for (let i = 0; i < cands.length; i++) {
-    const vals = cands[i].getDataRange().getValues();
-    try { return { vals: vals, layout: detectLayout_(vals), name: cands[i].getName() }; } catch (e) {}
-  }
-  throw new Error('ไม่พบแท็บที่มีหัวตาราง "ทั้งปี" + ต.ค.–ก.ย. (ตรวจ SHEET_GID / SHEET_NAME)');
-}
+                <!-- Search & Action Controls -->
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                    <!-- Search Bar -->
+                    <div class="relative flex-1 sm:w-72 md:w-80">
+                        <input 
+                            type="text" 
+                            id="globalSearchInput" 
+                            placeholder="ค้นหาโครงการ, ตัวชี้วัด, หน่วยงาน (เช่น ศทส.)..." 
+                            class="w-full pl-9 pr-20 py-2.5 bg-white/10 hover:bg-white/15 focus:bg-white text-white focus:text-slate-900 placeholder-slate-300 focus:placeholder-slate-400 text-sm rounded-xl border border-white/20 focus:border-amber-400 focus:outline-none transition-all"
+                        >
+                        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-3 pointer-events-none"></i>
+                        <button 
+                            id="searchActionBtn"
+                            onclick="executeSearch()"
+                            class="absolute right-1.5 top-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                        >
+                            ค้นหา
+                        </button>
+                    </div>
 
-function norm_(v) { return String(v == null ? '' : v).replace(/\s+/g, ''); }
+                    <!-- Update Data Button -->
+                    <button 
+                        onclick="openUpdateModal()"
+                        class="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-semibold text-sm rounded-xl shadow-md shadow-amber-950/30 transition-all cursor-pointer shrink-0"
+                    >
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                        <span>อัปเดตข้อมูลให้เป็นปัจจุบัน</span>
+                    </button>
+                </div>
+            </div>
 
-function detectLayout_(vals) {
-  const lim = Math.min(vals.length, 15);
-  for (let r = 0; r < lim; r++) {
-    const row = vals[r].map(norm_), c0 = row.indexOf(MONTHS[0]);
-    if (c0 < 1 || !MONTHS.every(function (m, i) { return row[c0 + i] === m; })) continue;
-    if (row[c0 - 1].indexOf('ทั้งปี') < 0) continue;
-    let b = CONFIG.BUDGET_COL ? CONFIG.BUDGET_COL - 1 : -1;
-    for (let rr = 0; rr <= r && b < 0; rr++)
-      b = vals[rr].map(norm_).findIndex(function (s) { return s.indexOf('งบประมาณ') === 0; });
-    if (b < 0 || b >= c0 - 2) continue;
-    return { headerRow: r, m0: c0, total: c0 - 1, unit: c0 - 2, budget: b, owner: c0 + 12 };
-  }
-  throw new Error('detectLayout_: ไม่พบหัวตาราง');
-}
+            <!-- Live Search Results Banner (Hidden by default) -->
+            <div id="searchResultsBanner" class="hidden mt-3 pt-3 border-t border-white/15">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 text-xs text-amber-300">
+                        <i data-lucide="filter" class="w-4 h-4"></i>
+                        <span id="searchSummaryText">พบโครงการที่ตรงกับคำค้นหา</span>
+                    </div>
+                    <button onclick="clearSearch()" class="text-xs text-slate-300 hover:text-white underline flex items-center gap-1 cursor-pointer">
+                        <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> ล้างการค้นหา
+                    </button>
+                </div>
+                <div id="searchQuickChips" class="flex flex-wrap gap-1.5 mt-2"></div>
+            </div>
+        </div>
+    </header>
 
-/* ---------- แปลงค่า ---------- */
-function toNum_(v) {
-  if (typeof v === 'number') return isFinite(v) ? v : null;
-  if (typeof v === 'string') {
-    const s = v.replace(/[,\s]/g, '');
-    if (!s || /^[-–—]+$/.test(s)) return null;
-    const n = Number(s);
-    return isFinite(n) ? n : null;
-  }
-  return null;
-}
-function sumN_(a) {
-  let s = 0, any = false;
-  a.forEach(function (v) { if (v !== null) { s += v; any = true; } });
-  return any ? Math.round(s * 1e6) / 1e6 : null;
-}
-function lastN_(a) {
-  for (let i = a.length - 1; i >= 0; i--) if (a[i] !== null) return a[i];
-  return null;
-}
-function near_(a, b) { return Math.abs(a - b) <= Math.max(0.01, Math.abs(b) * 0.005); }
+    <!-- Main Dashboard Container -->
+    <main class="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-/** sum = ยอดรายเดือนบวกกันได้ | level = ค่าระดับ/สะสม (ร้อยละ, คะแนน, หรือยอดรวม = ค่าเดือนสุดท้าย) */
-function modeOf_(unit, row, L) {
-  if (/ร้อยละ|คะแนน/.test(unit)) return 'level';
-  const m = MONTHS.map(function (_, i) { return toNum_(row[L.m0 + i]); });
-  const t = toNum_(row[L.total]), s = sumN_(m), l = lastN_(m);
-  if (t === null || s === null || near_(s, t)) return 'sum';
-  return (l !== null && near_(l, t)) ? 'level' : 'sum';
-}
+        <!-- Toast / Notification Banner -->
+        <div id="toastNotification" class="hidden fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-amber-400/40 flex items-center gap-3 transition-all">
+            <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <p id="toastTitle" class="text-sm font-semibold">อัปเดตข้อมูลสำเร็จ</p>
+                <p id="toastMessage" class="text-xs text-slate-300">คำนวณตัวเลข KPI และกราฟทั้งหมดใหม่เรียบร้อยแล้ว</p>
+            </div>
+        </div>
 
-/** conv=true: ค่าผลหน่วย "ล้านบาท" ที่กรอกเป็นบาท (>=100,000) จะหาร 1,000,000 */
-function series_(row, L, mode, conv) {
-  let changed = false;
-  const fix = function (v) {
-    if (v === null) return null;
-    if (conv && Math.abs(v) >= 100000) { changed = true; return Math.round(v / 1e4) / 100; }
-    return v;
-  };
-  const m = MONTHS.map(function (_, i) { return fix(toNum_(row[L.m0 + i])); });
-  const t = fix(toNum_(row[L.total]));
-  const sum = mode === 'sum';
-  const q = [0, 1, 2, 3].map(function (k) {
-    const p = m.slice(k * 3, k * 3 + 3);
-    return sum ? sumN_(p) : lastN_(p);
-  });
-  const s = sum ? sumN_(m) : null;
-  const y = t !== null ? t : (sum ? s : lastN_(m));
-  return { m: m, q: q, y: y, conv: changed,
-           chk: (sum && t !== null && s !== null && !near_(s, t)) ? s : null };
-}
-
-function findUnit_(parts, L) {
-  const re = /^(?:(.*?)\s+)?(แผน|ผล)\s*\(([^)]+)\)\s*$/;
-  for (let i = 0; i < parts.length; i++) {
-    const x = re.exec(parts[i].s);
-    if (x) return { c: parts[i].c, ps: x[2], unit: x[3].replace(/\s+/g, '') };
-  }
-  for (let j = 0; j < parts.length; j++)
-    if (parts[j].c === L.unit && BARE_UNIT.test(parts[j].s)) return { c: L.unit, ps: 'แผน', unit: parts[j].s };
-  return null;
-}
-
-function classify_(unit, name) {
-  if (unit === 'ล้านบาท' && name.indexOf('มูลค่า') >= 0) return 'trade';
-  if (unit === 'ราย' && name.indexOf('ผู้ประกอบการ') >= 0) return 'entre';
-  return 'other';
-}
-
-/* ---------- ตัวสร้างข้อมูลหลัก ---------- */
-function buildDashboard_() {
-  const src = readSheet_(), vals = src.vals, L = src.layout;
-  const warn = [], programs = [], projects = [];
-  let prog = null, cur = null, lastPlan = null, act = '', curItem = null;
-
-  for (let r = L.headerRow + 1; r < vals.length; r++) {
-    const row = vals[r], parts = [];
-    for (let c = 0; c < L.total; c++) {
-      const s = String(row[c] == null ? '' : row[c]).replace(/\s+/g, ' ').trim();
-      if (s) parts.push({ c: c, s: s, isStr: typeof row[c] === 'string' });
-    }
-    if (!parts.length) continue;
-    const first = parts[0].s, first2 = parts.slice(0, 2).map(function (p) { return p.s; }).join(' ');
-    const bud = toNum_(row[L.budget]);
-    let m;
-
-    if (/^แผนงาน/.test(first)) {
-      prog = { name: first, budget: bud, items: [] };
-      programs.push(prog); cur = null; lastPlan = null; curItem = null;
-    } else if (/^เป้าหมายหน่วยงาน/.test(first)) {
-      cur = null; lastPlan = null;
-    } else if (/^ผลผลิตที่/.test(first)) {
-      cur = null; lastPlan = null;
-      if (prog) prog.items.push({ name: first, budget: bud, kind: 'ผลผลิต' });
-    } else if ((m = /^(\d{1,2})\s+(โครงการ.*)$/.exec(first2))) {
-      const no = Number(m[1]);
-      if (projects.some(function (p) { return p.no === no; })) warn.push('แถว ' + (r + 1) + ': เลขโครงการ ' + no + ' ซ้ำ');
-      cur = { no: no, name: m[2].trim(), budget: bud, program: prog ? prog.name : '',
-              owner: String(row[L.owner] || '').trim(), indicators: [] };
-      projects.push(cur); lastPlan = null; act = '';
-      curItem = { name: 'โครงการที่ ' + no + ' ' + cur.name, budget: bud, kind: 'โครงการ' };
-      if (prog) prog.items.push(curItem);
-    } else if (/^กิจกรรม/.test(first) && cur) {
-      act = first;
-      if (cur.budget === null && bud !== null) {         // บางโครงการระบุงบที่ระดับกิจกรรม
-        cur.budget = bud; if (curItem) curItem.budget = bud;
-      }
-    } else if (cur) {
-      const u = findUnit_(parts, L);
-      const isRes = parts.some(function (p) { return p.s === 'ผล'; }) || (u && u.ps === 'ผล');
-      if (isRes) {
-        if (lastPlan && !lastPlan.result) {
-          if (u && u.unit !== lastPlan.unit) warn.push('โครงการที่ ' + cur.no + ' แถว ' + (r + 1) + ': หน่วยของผล (' + u.unit + ') ต่างจากแผน (' + lastPlan.unit + ')');
-          lastPlan.result = series_(row, L, lastPlan.mode, lastPlan.unit === 'ล้านบาท');
-          lastPlan.resRow = r + 1;
-          if (lastPlan.result.conv) warn.push('ℹ โครงการที่ ' + cur.no + ' แถว ' + (r + 1) + ': ค่าผลกรอกเป็นหน่วยบาท ระบบแปลงเป็นล้านบาทให้อัตโนมัติ (÷1,000,000) กรุณายืนยันกับเจ้าของข้อมูล');
-        } else warn.push('โครงการที่ ' + cur.no + ' แถว ' + (r + 1) + ': แถว "ผล" ไม่มีแถว "แผน" คู่กัน');
-      } else if (u && u.ps === 'แผน') {
-        const nm = (parts.filter(function (p) { return p.isStr && p.c < L.unit; })[0] || { s: '(ไม่ระบุตัวชี้วัด)' }).s;
-        const mode = modeOf_(u.unit, row, L);
-        lastPlan = {
-          name: nm.replace(/^ตัวชี้วัด[^:：]*[:：]\s*/, ''),
-          type: /เชิงปริมาณ/.test(nm) ? 'ปริมาณ' : /คุณภาพ/.test(nm) ? 'คุณภาพ' : '',
-          unit: u.unit, mode: mode, kind: classify_(u.unit, nm), act: act,
-          owner: String(row[L.owner] || '').trim(),
-          qReport: /รายงานสิ้นไตรมาส/.test(String(row[L.owner + 1] || '')),
-          row: r + 1, plan: series_(row, L, mode, false), result: null
-        };
-        cur.indicators.push(lastPlan);
-      }
-    }
-  }
-
-  /* ---------- ตรวจความถูกต้อง ---------- */
-  if (projects.length !== CONFIG.EXPECTED_PROJECTS)
-    warn.push('พบ ' + projects.length + ' โครงการ (คาดว่า ' + CONFIG.EXPECTED_PROJECTS + ')');
-  programs.forEach(function (g) {
-    const s = sumN_(g.items.map(function (i) { return i.budget; }));
-    if (g.budget !== null && s !== null && Math.abs(g.budget - s) > 0.0005)
-      warn.push('งบ "' + g.name.slice(0, 45) + '" = ' + g.budget + ' ไม่เท่าผลรวมรายการย่อย ' + s.toFixed(4));
-  });
-  projects.forEach(function (p) {
-    if (p.budget === null) warn.push('โครงการที่ ' + p.no + ': ไม่พบงบประมาณ');
-    p.indicators.forEach(function (i) {
-      if (i.plan.chk !== null) warn.push('โครงการที่ ' + p.no + ' แถว ' + i.row + ': แผนรวมรายเดือน (' + i.plan.chk + ') ไม่ตรงคอลัมน์ทั้งปี (' + i.plan.y + ')');
-      if (i.result && i.result.chk !== null) warn.push('โครงการที่ ' + p.no + ' แถว ' + i.resRow + ': ผลรวมรายเดือน (' + i.result.chk + ') ไม่ตรงคอลัมน์ทั้งปี (' + i.result.y + ')');
-      if (i.result && i.unit === 'ล้านบาท' && i.plan.y > 0 && i.result.y > i.plan.y * 100)
-        warn.push('โครงการที่ ' + p.no + ' แถว ' + i.resRow + ': ผล ' + i.result.y + ' สูงผิดปกติเมื่อเทียบแผน ' + i.plan.y);
-    });
-  });
-
-  /* ---------- สรุปโครงการที่ 1-9 (ตัวชี้วัดแรกของแต่ละประเภท/โครงการ ป้องกันนับซ้ำ) ---------- */
-  const p19 = projects.filter(function (p) { return p.no >= 1 && p.no <= 9; });
-  const pick = function (p, k) { return p.indicators.filter(function (i) { return i.kind === k; })[0]; };
-  let lastMonth = -1;
-  p19.forEach(function (p) {
-    ['trade', 'entre'].forEach(function (k) {
-      const i = pick(p, k);
-      if (i && i.result) i.result.m.forEach(function (v, ix) { if (v !== null && ix > lastMonth) lastMonth = ix; });
-    });
-  });
-  const agg = function (i) {
-    return !i ? null : { plan: i.plan.y, result: i.result ? i.result.y : null, owner: i.owner,
-      planToDate: lastMonth >= 0 ? sumN_(i.plan.m.slice(0, lastMonth + 1)) : null };
-  };
-  const rows = p19.map(function (p) {
-    const t = agg(pick(p, 'trade')), e = agg(pick(p, 'entre'));
-    if (!t) warn.push('โครงการที่ ' + p.no + ': ไม่พบตัวชี้วัดมูลค่าการค้า');
-    if (!e) warn.push('โครงการที่ ' + p.no + ': ไม่พบตัวชี้วัดผู้ประกอบการ');
-    return { no: p.no, name: p.name, budget: p.budget, trade: t, entre: e };
-  });
-  const tot = function (k, f) { return sumN_(rows.map(function (x) { return x[k] ? x[k][f] : null; })); };
-  const totals = {};
-  ['trade', 'entre'].forEach(function (k) {
-    totals[k] = { plan: tot(k, 'plan'), result: tot(k, 'result'), planToDate: tot(k, 'planToDate') };
-  });
-
-  return {
-    updated: new Date().toISOString(), sheet: src.name, months: MONTHS, lastMonth: lastMonth,
-    budget: {
-      total: sumN_(programs.map(function (g) { return g.budget; })),
-      p19: sumN_(p19.map(function (p) { return p.budget; }))
-    },
-    programs: programs,
-    summary: { rows: rows, totals: totals },
-    projects: projects,
-    warnings: warn
-  };
-}
+        <!-- SECTION 1: KPI SUMMARY CARDS -->
+        <section aria-label="สรุปตัวชี้วัดหลักสำหรับผู้บริหาร">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                
+                <!-- KPI Card 1: Budget Allocation -->
+                <div class="bg-white rounded-2xl p-6 card-shadow border border-slate-200/80 relative overflow-hidden flex flex-col justify-between">
+                    <div class="absolute top-0 right-0 w-28 h-28 bg-amber-50 rounded-bl-full -z-0 opacity-70"></div>
+                    <div class="relative z-10">
+                        <div class="flex items-center justify-between gap-2 mb-3">
+                            <span class="text-xs font-semibold uppercase tracking-wider text-moc-slate bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100">
+                                งบประมาณที่ได้รับจัดสรร (พ.ศ. 2570)
+                            </span>
+                            <div class="w-10 h-10 rounded-xl bg-moc-navy text-amber-400 flex items-center justify-center shadow-sm">
+                                <i data-lucide="wallet" class="w-5 h-5"></i>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-2">
+                            <p class="text-xs text-slate-500">งบประมาณรวมตามแผนงานยุทธศาสตร์ (5 แผนงาน)</p>
+                            <div class="flex items-baseline gap-2 mt-0.5">
+                                <span id="kpiTotalBudgetAll" class="text-3xl sm:text-4xl font-bold text-moc-navy font-num">897.83</span>
+                                <span class="text-sm font-medium text-slate-600">ล้านบาท</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 font-num mt-0.5">(ยอดละเอียด: 897.8268
